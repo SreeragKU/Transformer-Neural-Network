@@ -1,9 +1,8 @@
-import torch
+import pickle
+import os.path
 import numpy as np
 from transformer import Transformer
 from torch.utils.data import Dataset, DataLoader
-from torch import nn
-
 english_file = 'dataset/en-ml/train.en'
 malayalam_file = 'dataset/en-ml/train.ml'
 
@@ -228,12 +227,14 @@ for epoch in range(num_epochs):
               predicted_sentence += index_to_malayalam[idx.item()]
             print(f"Malayalam Prediction: {predicted_sentence}")
 
-
             transformer.eval()
             ml_sentence = ("",)
             eng_sentence = ("should we go to the mall?",)
+            actual_sentence = "നമുക്ക് മാളിൽ പോകണോ?"
+
             for word_counter in range(max_sequence_length):
-                encoder_self_attention_mask, decoder_self_attention_mask, decoder_cross_attention_mask= create_masks(eng_sentence, ml_sentence)
+                encoder_self_attention_mask, decoder_self_attention_mask, decoder_cross_attention_mask = create_masks(
+                    eng_sentence, ml_sentence)
                 predictions = transformer(eng_sentence,
                                           ml_sentence,
                                           encoder_self_attention_mask.to(device),
@@ -243,12 +244,81 @@ for epoch in range(num_epochs):
                                           enc_end_token=False,
                                           dec_start_token=True,
                                           dec_end_token=False)
-                next_token_prob_distribution = predictions[0][word_counter] # not actual probs
+                next_token_prob_distribution = predictions[0][word_counter]  # not actual probs
                 next_token_index = torch.argmax(next_token_prob_distribution).item()
                 next_token = index_to_malayalam[next_token_index]
-                ml_sentence = (ml_sentence[0] + next_token, )
+                ml_sentence = (ml_sentence[0] + next_token,)
                 if next_token == END_TOKEN:
-                  break
+                    break
 
-            print(f"Evaluation translation (should we go to the mall?) : {ml_sentence}")
+            ml_sentence = ml_sentence[0]
+            print(f"Evaluation translation (should we go to the mall?): {ml_sentence}")
             print("-------------------------------------------")
+
+
+            # Calculate metrics
+            def calculate_metrics(actual_sentence, ml_sentence):
+                actual_tokens = set(actual_sentence.strip().split())
+                ml_tokens = set(ml_sentence.strip().split())
+
+                true_positives = len(actual_tokens.intersection(ml_tokens))
+                false_positives = len(ml_tokens - actual_tokens)
+                false_negatives = len(actual_tokens - ml_tokens)
+
+                precision = true_positives / (
+                            true_positives + false_positives) if true_positives + false_positives > 0 else 0
+                recall = true_positives / (
+                            true_positives + false_negatives) if true_positives + false_negatives > 0 else 0
+
+                accuracy = true_positives / max(len(actual_tokens), len(ml_tokens))
+
+                f1_score = 2 * (precision * recall) / (precision + recall) if precision + recall > 0 else 0
+
+                return {
+                    "precision": precision,
+                    "recall": recall,
+                    "accuracy": accuracy,
+                    "f1_score": f1_score
+                }
+
+
+            evaluation_data = []
+
+            # Inside the loop where you perform evaluations
+            # Calculate metrics
+            metrics = calculate_metrics(actual_sentence, ml_sentence)
+
+            # Append loss to evaluation data
+            metrics["loss"] = loss.item()
+
+            # Append metrics to evaluation data list
+            evaluation_data.append(metrics)
+
+            # File path for storing evaluation data
+            file_path = r'E:\Transformer Neural Network\dataset\metrics.pkl'
+
+            # Check if the file exists
+            if os.path.exists(file_path):
+                # If the file exists, load existing data
+                with open(file_path, 'rb') as f:
+                    existing_data = pickle.load(f)
+            else:
+                # If the file doesn't exist, create an empty list
+                existing_data = []
+
+            # Append new data to existing data
+            existing_data.extend(evaluation_data)
+
+            # Save evaluation data to a file after each evaluation
+            with open(file_path, 'wb') as f:
+                pickle.dump(existing_data, f)
+
+            print("Precision:", metrics["precision"])
+            print("Recall:", metrics["recall"])
+            print("Accuracy:", metrics["accuracy"])
+            print("F1 Score:", metrics["f1_score"])
+            print("-------------------------------------------")
+
+# Save the trained model
+with open('transformer_model.pkl', 'wb') as f:
+    pickle.dump(transformer, f)
